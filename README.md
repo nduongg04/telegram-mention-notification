@@ -1,219 +1,308 @@
-1. Objective
+# Telegram Priority Notifier
 
-Provide reliable, low-noise notifications for high-priority Telegram messages that would otherwise be missed due to muted chats or notification overload.
+A self-hosted Telegram notification system that monitors your account for important messages and sends priority alerts when you receive direct messages, mentions, or replies - even in muted chats.
 
-The system listens to all incoming Telegram messages on the user’s account and generates explicit alert messages when predefined priority conditions are met.
+## Features
 
-2. Problem Statement
+- **Smart Alert Triggers**
 
-Telegram’s native notification controls do not support:
+  - Direct messages (DMs) from any user
+  - @mentions of your username
+  - Replies to your messages in any chat
 
-Global “mentions-only” behavior across chats
+- **Priority Contacts & Mute Lists**
 
-Consistent alerting for replies to muted conversations
+  - Whitelist mode: Only receive alerts from specific contacts
+  - Blacklist mode: Mute specific chats/users from triggering alerts
+  - Flexible filtering that works across all chat types
 
-Centralized escalation of all direct messages
+- **Snooze System**
 
-Conditional logic across heterogeneous chat types
+  - Temporarily pause all notifications
+  - Queue mode: Collect alerts during snooze and deliver them when you're back
+  - Drop mode: Silently ignore alerts during snooze
+  - Automatic expiration with customizable durations
 
-As a result, important messages are frequently missed.
+- **Reliability**
+  - Automatic reconnection on network failures
+  - Message deduplication (no duplicate alerts)
+  - State persistence across restarts
+  - Hourly heartbeat logging for monitoring
 
-3. Success Criteria
+## Quick Start
 
-The product is successful if:
+### One-Command Setup
 
-The user receives an alert for 100% of qualifying messages
+```bash
+git clone https://github.com/nduongg04/telegram-mention-notification.git
+cd tele-noti
+./run.sh
+```
 
-Alerts are delivered within ≤5 seconds of message receipt (best-effort)
+The setup script will:
 
-Alert volume is low enough that no alerts are ignored
+1. Check for Python 3.8+
+2. Create a virtual environment
+3. Install dependencies
+4. Guide you through configuration
+5. Start the notifier
 
-No duplicate alerts are generated
+### Manual Setup
 
-The system runs unattended for weeks without intervention
+1. **Clone the repository**
 
-4. In-Scope Functionality
-4.1 Message Sources
+   ```bash
+   git clone https://github.com/nduongg04/telegram-mention-notification.git
+   cd tele-noti
+   ```
 
-The system must monitor:
+2. **Create virtual environment**
 
-Private chats (direct messages)
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-Group chats
+3. **Install dependencies**
 
-Supergroups
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Channels (read-only)
+4. **Configure environment**
 
-All message types are treated as inbound events.
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
 
-4.2 Trigger Conditions
+5. **Run the notifier**
+   ```bash
+   python main.py
+   ```
 
-An alert MUST be generated if any of the following conditions are true:
+## Configuration
 
-A. Direct Messages
+### Required Credentials
 
-Message is from a private chat
+You'll need to obtain the following:
 
-Sender is not the user
+| Variable             | Description           | How to Get                                           |
+| -------------------- | --------------------- | ---------------------------------------------------- |
+| `TELEGRAM_API_ID`    | Telegram API ID       | [my.telegram.org/apps](https://my.telegram.org/apps) |
+| `TELEGRAM_API_HASH`  | Telegram API Hash     | [my.telegram.org/apps](https://my.telegram.org/apps) |
+| `TELEGRAM_PHONE`     | Your phone number     | Format: `+1234567890`                                |
+| `TELEGRAM_BOT_TOKEN` | Bot token             | Create via [@BotFather](https://t.me/BotFather)      |
+| `TELEGRAM_CHAT_ID`   | Chat ID with your bot | See instructions below                               |
 
-B. Mentions
+### Getting Your Chat ID
 
-Message contains a textual @username mention
+1. Create a bot via [@BotFather](https://t.me/BotFather)
+2. Start a chat with your new bot
+3. Send any message to the bot
+4. Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+5. Find the `"chat":{"id":YOUR_CHAT_ID}` in the response
+
+### Optional Settings
+
+| Variable       | Default                 | Description                                 |
+| -------------- | ----------------------- | ------------------------------------------- |
+| `SESSION_FILE` | `telegram_session.json` | User session file path                      |
+| `STATE_FILE`   | `state.json`            | State persistence file path                 |
+| `LOG_LEVEL`    | `INFO`                  | Logging level (DEBUG, INFO, WARNING, ERROR) |
+
+## Bot Commands
+
+Control the notifier by sending commands to your bot:
+
+### Status
+
+| Command   | Description                      |
+| --------- | -------------------------------- |
+| `/start`  | Welcome message and introduction |
+| `/help`   | Show all available commands      |
+| `/status` | Current notifier status overview |
+
+### Snooze
+
+| Command                      | Description                             |
+| ---------------------------- | --------------------------------------- |
+| `/snooze <duration>`         | Snooze alerts (e.g., `30m`, `2h`, `1d`) |
+| `/snooze --queue <duration>` | Snooze with alert queueing              |
+| `/snooze status`             | Check current snooze status             |
+| `/unsnooze`                  | End snooze and deliver queued alerts    |
+
+### Priority Contacts
+
+| Command                  | Description                                       |
+| ------------------------ | ------------------------------------------------- |
+| `/priority mode <mode>`  | Set filter mode (`whitelist`, `blacklist`, `off`) |
+| `/priority add @user`    | Add user to priority list                         |
+| `/priority remove @user` | Remove user from priority list                    |
+| `/priority list`         | Show current priority list                        |
+
+### Mute List
+
+| Command         | Description           |
+| --------------- | --------------------- |
+| `/mute @chat`   | Mute a chat or user   |
+| `/unmute @chat` | Unmute a chat or user |
+| `/listmuted`    | Show muted list       |
+
+## Alert Format
+
+Alerts are clearly formatted with trigger type and message context:
+
+```
+🔔 [DM]
+Chat: John Doe
+From: John Doe (@johndoe)
+Time: 2025-01-15 14:30:00
+Link: https://t.me/johndoe
+
+Preview:
+Hey, are you available for a quick call?
+```
+
+Bot responses use a distinct 🤖 prefix to differentiate from alerts.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Telegram Priority Notifier                │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
+│  │  User Client │    │  Bot Client  │    │    State     │  │
+│  │  (MTProto)   │    │  (Commands)  │    │   Manager    │  │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘  │
+│         │                   │                   │          │
+│         ▼                   ▼                   ▼          │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │                    Message Handler                    │  │
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  │  │
+│  │  │ Snooze  │→ │Priority │→ │ Trigger │→ │  Dedup  │  │  │
+│  │  │ Check   │  │ Filter  │  │ Engine  │  │  Check  │  │  │
+│  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘  │  │
+│  └──────────────────────────┬───────────────────────────┘  │
+│                             │                              │
+│                             ▼                              │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              Alert Formatter & Notifier               │  │
+│  │         (Sends alerts via Telegram Bot API)           │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Running as a Service
 
-Message contains a Telegram entity referencing the user ID
+### systemd (Linux)
+
+Create `/etc/systemd/system/tele-noti.service`:
+
+```ini
+[Unit]
+Description=Telegram Priority Notifier
+After=network.target
 
-C. Replies
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/path/to/tele-noti
+Environment=PATH=/path/to/tele-noti/venv/bin
+ExecStart=/path/to/tele-noti/venv/bin/python main.py
+Restart=always
+RestartSec=10
 
-Message is a reply to a message authored by the user
+[Install]
+WantedBy=multi-user.target
+```
 
-4.3 Exclusions (Non-Triggers)
+Enable and start:
 
-Alerts MUST NOT be generated when:
+```bash
+sudo systemctl enable tele-noti
+sudo systemctl start tele-noti
+```
 
-Message is authored by the user
+### Docker (Coming Soon)
 
-Message is a service/system message
+Docker support is planned for a future release.
 
-Message fails to meet any trigger condition
+## Development
 
-(Additional exclusions may be added later but are out of scope for v1.)
+### Project Structure
 
-5. Notification Delivery
-5.1 Destination
+```
+tele-noti/
+├── main.py              # Application entry point
+├── run.sh               # Setup and run script
+├── requirements.txt     # Python dependencies
+├── .env.example         # Environment template
+└── src/
+    ├── auth.py          # Telegram authentication
+    ├── commands.py      # Bot command handlers
+    ├── config.py        # Configuration loader
+    ├── formatter.py     # Alert message formatter
+    ├── notifier.py      # Notification delivery
+    ├── state.py         # State persistence
+    └── triggers.py      # Alert trigger logic
+```
 
-Alerts must be delivered to:
+### Running in Development
 
-Telegram Saved Messages of the same user account
+```bash
+# Use DEBUG log level for verbose output
+LOG_LEVEL=DEBUG python main.py
+```
 
-No external services, bots, or secondary accounts are required.
+## Security Notes
 
-5.2 Alert Format
+- Session credentials are stored locally in session files
+- Never commit `.env` or session files to version control
+- The bot only reads messages; it never modifies or deletes anything
+- All communication uses Telegram's encrypted MTProto protocol
 
-Each alert must include:
+## Troubleshooting
 
-Trigger Type: DM, Mention, or Reply
+### "Could not resolve: @username"
 
-Chat Name
+- Ensure the username exists and you have interacted with them before
+- Try using the full username with @ prefix
 
-Sender Name / Username
+### Commands not responding
 
-Message Timestamp
+- Make sure you're sending commands to the bot, not a regular chat
+- Verify the bot token and chat ID are correct
+- Check logs for error messages
 
-Message Deep Link
+### Session expired
 
-Message Preview (first ~120 characters)
+- Delete `telegram_session.json` and `bot_session.session`
+- Run the application again to re-authenticate
 
-Alerts must be concise and human-readable.
+### Rate limiting
 
-6. Non-Functional Requirements
-6.1 Reliability
+- The notifier implements automatic rate limiting
+- If you see 429 errors, wait a few minutes before retrying
 
-Best-effort delivery
+## License
 
-Automatic reconnection on network failure
+MIT License - see [LICENSE](LICENSE) for details.
 
-No manual restarts under normal conditions
+## Contributing
 
-6.2 Deduplication
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-Each source message may generate at most one alert
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-Message ID–based deduplication is required
+## Acknowledgments
 
-6.3 Performance
-
-Must handle idle and burst message loads gracefully
-
-CPU and memory usage are non-critical but must be stable
-
-7. Architecture Overview
-7.1 Core Components
-
-Telegram User Account Client
-
-Authenticated via MTProto
-
-Persistent session storage
-
-Message Listener
-
-Subscribes to incoming message events
-
-Normalizes message metadata
-
-Filter Engine
-
-Applies trigger conditions deterministically
-
-Emits alert events
-
-Notification Sink
-
-Formats alerts
-
-Sends messages to Saved Messages
-
-State Store
-
-Tracks processed message IDs
-
-Prevents duplicate alerts
-
-8. Technology Constraints
-
-Must use Telegram MTProto (not Bot API)
-
-Must authenticate as a user account
-
-Must run as a long-lived process
-
-Language and framework are implementation details and not mandated.
-
-9. Security Considerations
-
-Session credentials must not be hardcoded
-
-Secrets must be stored securely (environment variables or encrypted storage)
-
-Read-only access: no message modification or deletion
-
-10. Out of Scope (v1)
-
-Keyword-based triggers
-
-User-configurable UI
-
-Multi-user support
-
-External alert channels (email, Slack, etc.)
-
-Historical backfill of messages
-
-11. Risks & Mitigations
-Risk	Mitigation
-Excessive alert volume	Strict trigger logic
-Missed messages due to disconnect	Reconnect + logging
-Account rate limits	Conservative API usage
-Silent failures	Periodic health logging
-12. Open Questions (Explicitly Deferred)
-
-Should channels be filtered differently?
-
-Should certain chats be whitelisted/blacklisted?
-
-Should alerts be grouped or throttled?
-
-These are intentionally excluded from v1.
-
-13. Acceptance Criteria
-
-The system is accepted when:
-
-Muting all Telegram chats still allows all qualifying alerts through
-
-A mention or reply reliably generates a Saved Messages alert
-
-Every DM generates exactly one alert
-
-The system runs continuously for 7 days without manual intervention
+- Built with [Telethon](https://github.com/LonamiWebs/Telethon) - Pure Python MTProto API
+- Inspired by the need for better Telegram notification management
