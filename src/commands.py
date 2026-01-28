@@ -64,6 +64,8 @@ class CommandHandler:
                 return self._handle_start()
             elif command == '/help':
                 return self._handle_help()
+            elif command == '/timezone':
+                return self._handle_timezone(args)
             elif command == '/priority':
                 return await self._handle_priority(args)
             elif command == '/mute':
@@ -86,20 +88,47 @@ class CommandHandler:
 
     def _handle_start(self) -> str:
         """Handle /start command."""
-        return """🤖 <b>Priority Notifier Bot</b>
+        # Get current timezone display
+        tz_offset = self.state.get_timezone_offset()
+        if tz_offset >= 0:
+            tz_display = f"UTC+{tz_offset}"
+        else:
+            tz_display = f"UTC{tz_offset}"
 
-Welcome! This bot monitors your Telegram for important messages and sends you alerts for:
-• Direct messages (DMs)
-• Mentions (@username)
-• Replies to your messages
+        return f"""🔔 <b>Priority Notifier</b>
 
-Use /help to see all available commands."""
+Get instant alerts for messages that matter:
+• Direct messages
+• @mentions
+• Replies to you
+
+<b>━━━ Quick Setup ━━━</b>
+
+<b>1. Set Your Timezone</b>
+/timezone 7    → UTC+7 (Vietnam)
+/timezone -5   → UTC-5 (US East)
+
+Current: <b>{tz_display}</b>
+
+<b>2. Filter Alerts (Optional)</b>
+/priority mode whitelist  → Only VIPs
+/priority mode blacklist  → Mute specific chats
+/priority mode off        → All messages
+
+<b>3. Take a Break</b>
+/snooze 2h    → Pause for 2 hours
+/unsnooze     → Resume alerts
+
+<b>━━━━━━━━━━━━━━━━━━</b>
+
+Type /help for all commands."""
 
     def _handle_help(self) -> str:
         """Handle /help command."""
         return """🤖 <b>Available Commands</b>
 
-<b>Status</b>
+<b>Settings</b>
+/timezone &lt;offset&gt; - Set timezone (e.g., 7, -5)
 /status - Show current notifier status
 
 <b>Snooze</b>
@@ -118,6 +147,41 @@ Use /help to see all available commands."""
 /mute @chat - Mute a chat/user
 /unmute @chat - Unmute a chat/user
 /listmuted - Show muted list"""
+
+    def _handle_timezone(self, args: list) -> str:
+        """Handle /timezone command."""
+        if not args:
+            # Show current timezone
+            offset = self.state.get_timezone_offset()
+            if offset >= 0:
+                tz_display = f"UTC+{offset}"
+            else:
+                tz_display = f"UTC{offset}"
+            return f"""🕐 <b>Timezone</b>
+
+Current: <b>{tz_display}</b>
+
+To change, use:
+/timezone 7    → UTC+7
+/timezone -5   → UTC-5
+/timezone 0    → UTC"""
+
+        try:
+            offset = float(args[0].replace('+', ''))
+            if offset < -12 or offset > 14:
+                return "🤖 Invalid offset. Use -12 to +14."
+
+            self.state.set_timezone_offset(offset)
+
+            if offset >= 0:
+                tz_display = f"UTC+{offset:g}"
+            else:
+                tz_display = f"UTC{offset:g}"
+
+            return f"🕐 Timezone set to <b>{tz_display}</b>"
+
+        except ValueError:
+            return "🤖 Invalid format. Use: /timezone 7 or /timezone -5"
 
     async def _handle_priority(self, args: list) -> str:
         """Handle /priority command.

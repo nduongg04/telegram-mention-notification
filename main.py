@@ -160,8 +160,9 @@ class TelegramPriorityNotifier:
 
         # Initialize components
         self.trigger_engine = TriggerEngine(self.user_id, username, self.config.chat_id)
-        self.formatter = AlertFormatter()
+        self.formatter = AlertFormatter(state=self.state)
         self.notifier = NotificationSink(self.config.bot_token, self.config.chat_id)
+        self.notifier.set_user_client(self.client)  # Enable media forwarding
 
         # Initialize command handler
         self.command_handler = CommandHandler(
@@ -298,8 +299,11 @@ class TelegramPriorityNotifier:
             # Step 5: Format alert
             alert_message = await self.formatter.format_alert(event, trigger_type)
 
-            # Step 6: Send alert
-            success = await self.notifier.send_alert(alert_message)
+            # Step 6: Send alert (with media forwarding if applicable)
+            if self.formatter.has_media(message):
+                success = await self.notifier.send_media_alert(event, alert_message)
+            else:
+                success = await self.notifier.send_alert(alert_message)
 
             if success:
                 # Mark as processed

@@ -43,6 +43,9 @@ class StateManager:
         self.snooze_queue: List[Dict[str, Any]] = []
         self.queue_limit: int = DEFAULT_QUEUE_LIMIT
 
+        # User timezone (UTC offset in hours)
+        self.timezone_offset: float = 0.0
+
         self.load()
 
     def is_processed(self, chat_id: int, message_id: int) -> bool:
@@ -113,6 +116,9 @@ class StateManager:
                 self.snooze_behavior = snooze_data.get('behavior', 'drop')
                 self.snooze_queue = snooze_data.get('queue', [])
 
+                # Load timezone (migration: default to 0 if missing)
+                self.timezone_offset = data.get('timezone_offset', 0.0)
+
                 # Check if snooze expired during downtime
                 if self.snooze_active and self.snooze_until:
                     if time.time() > self.snooze_until:
@@ -155,6 +161,7 @@ class StateManager:
         self.snooze_until = None
         self.snooze_behavior = "drop"
         self.snooze_queue = []
+        self.timezone_offset = 0.0
 
     def save(self):
         """Save state to file atomically."""
@@ -175,6 +182,7 @@ class StateManager:
                     'behavior': self.snooze_behavior,
                     'queue': self.snooze_queue,
                 },
+                'timezone_offset': self.timezone_offset,
             }
 
             with open(temp_file, 'w') as f:
@@ -456,3 +464,25 @@ class StateManager:
         """Clear the alert queue."""
         self.snooze_queue = []
         self.save()
+
+    # -------------------------------------------------------------------------
+    # Timezone Methods
+    # -------------------------------------------------------------------------
+
+    def get_timezone_offset(self) -> float:
+        """Get the user's timezone offset in hours.
+
+        Returns:
+            UTC offset in hours (e.g., 7 for UTC+7, -5 for UTC-5)
+        """
+        return self.timezone_offset
+
+    def set_timezone_offset(self, offset: float):
+        """Set the user's timezone offset.
+
+        Args:
+            offset: UTC offset in hours (e.g., 7 for UTC+7, -5 for UTC-5)
+        """
+        self.timezone_offset = offset
+        self.save()
+        logger.info(f"Timezone set to UTC{'+' if offset >= 0 else ''}{offset:g}")

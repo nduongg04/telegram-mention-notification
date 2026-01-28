@@ -4,7 +4,11 @@ Formats notification messages with metadata and deep links.
 """
 
 import logging
-from typing import Optional
+from datetime import timezone, timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.state import StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +19,17 @@ class AlertFormatter:
     # Emoji mapping for trigger types
     EMOJI = {
         "DM": "🔔",
-        "Mention": "📢",
+        "Mention": "💬",
         "Reply": "💬"
     }
+
+    def __init__(self, state: "StateManager"):
+        """Initialize formatter.
+
+        Args:
+            state: State manager for accessing user timezone.
+        """
+        self.state = state
 
     async def format_alert(self, event, trigger_type: str) -> str:
         """Format an alert message.
@@ -31,9 +43,6 @@ class AlertFormatter:
         """
         message = event.message
 
-        # Get emoji for trigger type
-        emoji = self.EMOJI.get(trigger_type, "🔔")
-
         # Get chat info - fetch if needed
         chat = await event.get_chat()
         chat_name = self._get_chat_name(chat)
@@ -41,10 +50,9 @@ class AlertFormatter:
         # Get sender info - fetch if needed
         sender = await event.get_sender()
         sender_name = self._get_sender_name(sender)
-        sender_username = self._get_sender_username(sender)
 
-        # Get timestamp
-        timestamp = message.date.strftime("%Y-%m-%d %H:%M:%S")
+        # Get timestamp in user's timezone (HH:MM format)
+        timestamp = self._format_timestamp(message.date)
 
         # Generate deep link
         deep_link = self._generate_deep_link(chat, message)
@@ -52,17 +60,86 @@ class AlertFormatter:
         # Get message preview
         preview = self._get_message_preview(message)
 
-        # Build alert message (using HTML for bot API)
-        alert = f"""{emoji} <b>[{trigger_type}]</b>
-<b>Chat:</b> {self._escape_html(chat_name)}
-<b>From:</b> {self._escape_html(sender_name)}{sender_username}
-<b>Time:</b> {timestamp}
-<b>Link:</b> {deep_link}
+        # Check if message has media
+        has_media = self.has_media(message)
 
-<b>Preview:</b>
-{self._escape_html(preview)}"""
+        # Check if this is a DM (private chat) or group/channel
+        is_dm = trigger_type == "DM"
+
+        if is_dm:
+            # DM Format:
+            # 🔔 Sender Name
+            #    message preview / [media]
+            #
+            #    HH:MM • View →
+            alert = self._format_dm_alert(sender_name, preview, timestamp, deep_link, has_media)
+        else:
+            # Group Format:
+            # 💬 Group Name
+            # Sender Name: message preview / [media]
+            #
+            # HH:MM • View group →
+            emoji = self.EMOJI.get(trigger_type, "💬")
+            alert = self._format_group_alert(
+                emoji, chat_name, sender_name, preview, timestamp, deep_link, has_media
+            )
 
         return alert
+
+    def _format_dm_alert(
+        self, sender_name: str, preview: str, timestamp: str, deep_link: str, has_media: bool = False
+    ) -> str:
+        """Format a DM notification."""
+        if has_media:
+            # Media message - caption goes above media (Telegram shows: caption then media)
+            # So we put sender name in caption, media will appear below it
+            return f"""🔔 <b>{self._escape_html(sender_name)}</b>
+
+{timestamp} • <a href="{deep_link}">View →</a>"""
+        elif preview:
+            return f"""🔔 <b>{self._escape_html(sender_name)}</b>
+   {self._escape_html(preview)}
+
+   {timestamp} • <a href="{deep_link}">View →</a>"""
+        else:
+            return f"""🔔 <b>{self._escape_html(sender_name)}</b>
+
+   {timestamp} • <a href="{deep_link}">View →</a>"""
+
+    def _format_group_alert(
+        self,
+        emoji: str,
+        chat_name: str,
+        sender_name: str,
+        preview: str,
+        timestamp: str,
+        deep_link: str,
+        has_media: bool = False,
+    ) -> str:
+        """Format a group/channel notification."""
+        if has_media:
+            # Media message - caption above media
+            return f"""{emoji} <b>{self._escape_html(chat_name)}</b>
+{self._escape_html(sender_name)}
+
+{timestamp} • <a href="{deep_link}">View group →</a>"""
+        elif preview:
+            return f"""{emoji} <b>{self._escape_html(chat_name)}</b>
+{self._escape_html(sender_name)}: {self._escape_html(preview)}
+
+{timestamp} • <a href="{deep_link}">View group →</a>"""
+        else:
+            return f"""{emoji} <b>{self._escape_html(chat_name)}</b>
+{self._escape_html(sender_name)}
+
+{timestamp} • <a href="{deep_link}">View group →</a>"""
+
+    def _format_timestamp(self, dt) -> str:
+        """Format timestamp to HH:MM in user's timezone."""
+        offset_hours = self.state.get_timezone_offset()
+        user_tz = timezone(timedelta(hours=offset_hours))
+        dt = dt.astimezone(user_tz)
+        return dt.strftime("%H:%M")
 
     def _escape_html(self, text: str) -> str:
         """Escape HTML special characters."""
@@ -167,8 +244,33 @@ class AlertFormatter:
                 return text[:200] + "..."
             return text
 
-        # Media-only message
+        # For media messages, return empty string - media will be forwarded separately
         if message.media:
-            return "[Media]"
+            return ""
 
         return "[No content]"
+
+    def has_media(self, message) -> bool:
+        """Check if message contains media that should be forwarded.
+
+        Args:
+            message: Message object
+
+        Returns:
+            True if message has forwardable media
+        """
+        if not message.media:
+            return False
+
+        from telethon.tl.types import (
+            MessageMediaPhoto,
+            MessageMediaDocument,
+            MessageMediaWebPage,
+        )
+
+        # Forward photos, videos, documents, etc.
+        # Skip web page previews (they're just link previews)
+        if isinstance(message.media, MessageMediaWebPage):
+            return False
+
+        return isinstance(message.media, (MessageMediaPhoto, MessageMediaDocument))
